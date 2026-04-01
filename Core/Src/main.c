@@ -65,7 +65,18 @@ void MX_USB_HOST_Process(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+/*My encoder Reading function*/
+  uint16_t Read_AS5600(uint8_t mux_channel){
+  HAL_I2C_Master_Transmit_DMA(&hi2c1, (0x70 << 1), &mux_channel, 1);
+  uint16_t encoder_data[2]; 
 
+  #define AS5600_ADDR (0x36 << 1)
+  #define RAW_ANGLE_REG 0x0C 
+
+  HAL_I2C_Mem_Read_DMA(&hi2c1, AS5600_ADDR, RAW_ANGLE_REG, I2C_MEMADD_SIZE_8BIT, encoder_data, 2);
+  return encoder_data;
+  
+  }
 /* USER CODE END 0 */
 
 /**
