@@ -65,18 +65,32 @@ void MX_USB_HOST_Process(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-/*My encoder Reading function*/
+/*Part1: My encoder Reading function*/
   uint16_t Read_AS5600(uint8_t mux_channel){
-  HAL_I2C_Master_Transmit_DMA(&hi2c1, (0x70 << 1), &mux_channel, 1);
-  uint16_t encoder_data[2]; 
-
-  #define AS5600_ADDR (0x36 << 1)
-  #define RAW_ANGLE_REG 0x0C 
-
-  HAL_I2C_Mem_Read_DMA(&hi2c1, AS5600_ADDR, RAW_ANGLE_REG, I2C_MEMADD_SIZE_8BIT, encoder_data, 2);
-  return encoder_data;
+    uint16_t angle = 0;
+    uint8_t data[2];
+    uint8_t mux_address = 0x70; 
+    uint8_t mux_channel_select = 1 << mux_channel; 
+    HAL_I2C_Master_Transmit(&hi2c1, mux_address << 1, &mux_channel_select, 1, HAL_MAX_DELAY);
+    uint8_t as5600_address = 0x36; 
+    uint8_t angle_register = 0x0E; 
+    HAL_I2C_Master_Transmit(&hi2c1, as5600_address << 1, &angle_register, 1, HAL_MAX_DELAY);
+    HAL_I2C_Master_Receive(&hi2c1, as5600_address << 1, data, 2, HAL_MAX_DELAY);
+    angle = (data[0] << 8) | data[1];
+    return angle;
   
   }
+  /*Part 2: My GetTrueJointAngle function*/
+  float GetTrueJointAngle(uint16_t raw_encoder_val){
+    int32_t relative_val=int32_t(raw_encoder_val)-int32_t(3500);
+    while (relative_value > 2048)  relative_value -= 4096;
+    while (relative_value < -2048) relative_value += 4096;
+    float joint_angle = (float)relative_value * (180.0f / 4096.0f);
+    if (joint_angle > 90.0f)  joint_angle = 90.0f;
+    if (joint_angle < -90.0f) joint_angle = -90.0f;
+    return joint_angle;
+  }
+
 /* USER CODE END 0 */
 
 /**
