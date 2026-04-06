@@ -24,13 +24,16 @@ This project implements comprehensive low-level control for a 6-DOF robotic arm 
 - **Absolute Encoder Integration**: AS5600 encoder calibration and reading with DMA-optimized data retrieval
 - **Timer-Interrupt Motor Control**: Precise PWM generation and timing for synchronized joint actuation
 - **Blocking I2C Communication**: Blocking mode ensures synchronous I2C operations, guaranteeing data validity before function return. This approach eliminates race conditions in time-critical joint control scenarios.
-- **Live CLI**: THis i will update later on
 ## Hardware Components
 
 - **Microcontroller**: STM32F407xx (ARM Cortex-M4)
 - **I2C Multiplexer**: TCA9548A (0x70 base address)
 - **Encoders**: AS5600 magnetic encoders (per-joint absolute position sensing)
 - **Communication**: DMA-enabled I2C with USB host support
+
+### Pinout Diagram
+
+![STM32F407xx Pinout](pinout.png)
 
 ## Project Structure
 
