@@ -32,7 +32,19 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+/* Motor Control Variables */
+float Kp = 1.5f;          
+float target_angle = 0.0f;  
+float current_angle = 0.0f;  
+int motor_direction_multiplier = 1; 
 
+#define UART_BUF_SIZE 64
+uint8_t rx_data;
+char rx_buffer[UART_BUF_SIZE];
+uint8_t rx_index = 0;
+
+extern TIM_HandleTypeDef htim3; 
+extern UART_HandleTypeDef huart2;
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -90,7 +102,73 @@ void MX_USB_HOST_Process(void);
     if (joint_angle < -90.0f) joint_angle = -90.0f;
     return joint_angle;
   }
+void Update_Motor_Drive(float target, float current) {
+    float error = target - current;
+  
+    float output = Kp * error;
 
+    if (output * motor_direction_multiplier > 0) {
+        HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_SET);   
+    } else {
+        HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_RESET);
+    }
+
+    float abs_output = fabs(output);
+    
+    if (abs_output > 65535.0f) abs_output = 65535.0f;
+    
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, (uint32_t)abs_output);
+}
+
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+    if (htim->Instance == TIM2) { 
+      
+        uint16_t raw = Read_AS5600(0); 
+        current_angle = GetTrueJointAngle(raw);
+
+        Update_Motor_Drive(target_angle, current_angle);
+    }
+}
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+    if (htim->Instance == TIM2) {
+        uint16_t CHANNEL_0 = 0;
+        uint16_t raw = Read_AS5600(CHANNEL_0); 
+        current_angle = GetTrueJointAngle(raw);
+        Update_Motor_Drive(target_angle, current_angle);
+    }
+}
+void Parse_CLI_Command(char* cmd) {
+
+    if (strncmp(cmd, "SET_P", 5) == 0) {
+        Kp = atof(&cmd[6]);
+    }
+
+  
+    else if (strncmp(cmd, "SET_HOME", 8) == 0) {
+        target_angle = atof(&cmd[11]); 
+    }
+   
+    else if (strncmp(cmd, "INV_DIR", 7) == 0) {
+        motor_direction_multiplier *= -1;
+    }
+}
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+    if (huart->Instance == USART2) {
+        
+        if (rx_data == '\r' || rx_data == '\n') {
+            rx_buffer[rx_index] = '\0';
+            Parse_CLI_Command(rx_buffer);
+            rx_index = 0;
+        } else {
+            if (rx_index < UART_BUF_SIZE - 1) {
+                rx_buffer[rx_index++] = (char)rx_data;
+            }
+        }
+    
+        HAL_UART_Receive_IT(&huart2, &rx_data, 1);
+    }
+}
 /* USER CODE END 0 */
 
 /**
@@ -127,7 +205,9 @@ int main(void)
   MX_SPI1_Init();
   MX_USB_HOST_Init();
   /* USER CODE BEGIN 2 */
-
+HAL_TIM_Base_Start_IT(&htim2);
+HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+HAL_UART_Receive_IT(&huart2, &rx_data, 1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
