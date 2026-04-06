@@ -26,3 +26,30 @@
 - Integrated degree conversion and mechanical joint limits (±90° range)
 - Code location: [Core/Src/main.c](Core/Src/main.c) - `GetTrueJointAngle()` function
 - Documentation: Enhanced README.md with detailed algorithm explanation and design rationale
+
+## April 4, 2026 | Duration: 1 hour
+
+**Motor Control Implementation**
+
+- Designed and implemented proportional feedback control law for joint position tracking
+- Developed `Update_Motor_Drive()` function with configurable proportional gain tuning
+- Integrated PWM output generation through STM32 Timer 3 with 16-bit resolution
+- Implemented bidirectional motor direction control via GPIO (GPIOD Pin 12)
+- Applied output saturation to valid timer compare register range (0–65535 counts)
+- Code location: [Core/Src/main.c](Core/Src/main.c) - `Update_Motor_Drive()` function
+- Documentation: Added motor control section to README.md with technical architecture details
+
+## April 6, 2026 | Duration: 2 hours
+
+**Live-Tuning Command Interface Development**
+
+- Designed and implemented UART-based command-line interface for real-time parameter adjustment
+- Developed `Parse_CLI_Command()` function supporting three command types:
+  - `SET_P`: Dynamic proportional gain coefficient update
+  - `SET_HOME`: Target angle set-point adjustment
+  - `INV_DIR`: Motor rotation direction polarity toggle
+- Implemented interrupt-driven UART reception callback (`HAL_UART_RxCpltCallback()`)
+- Integrated character-buffered command accumulation with CR/LF termination detection
+- Code location: [Core/Src/main.c](Core/Src/main.c) - `Parse_CLI_Command()` and UART callback functions
+- Status: In-progress implementation; command parsing logic functional, serial communication validated
+- Documentation: Added comprehensive CLI section to README.md with command reference table 

@@ -9,6 +9,8 @@ Low-level joint control implementation for a 6-DOF robotic arm. This embedded sy
 - [Project Structure](#project-structure)
 - [I2C Multiplexer Integration](#i2c-multiplexer-integration)
 - [Encoder Rollover & Kinematics](#encoder-rollover--kinematics)
+- [Motor Control Implementation](#motor-control-implementation)
+- [Live-Tuning Command Interface](#live-tuning-command-interface)
 - [Getting Started](#getting-started)
 - [Building and Deployment](#building-and-deployment)
 
@@ -22,7 +24,7 @@ This project implements comprehensive low-level control for a 6-DOF robotic arm 
 - **Absolute Encoder Integration**: AS5600 encoder calibration and reading with DMA-optimized data retrieval
 - **Timer-Interrupt Motor Control**: Precise PWM generation and timing for synchronized joint actuation
 - **Blocking I2C Communication**: Blocking mode ensures synchronous I2C operations, guaranteeing data validity before function return. This approach eliminates race conditions in time-critical joint control scenarios.
-
+- **Live CLI**: THis i will update later on
 ## Hardware Components
 
 - **Microcontroller**: STM32F407xx (ARM Cortex-M4)
@@ -126,11 +128,113 @@ float GetTrueJointAngle(uint16_t raw_encoder_val) {
 | **Scale Conversion** | Multiply by 180/4096 | Transform encoder counts to degrees |
 | **Limit Enforcement** | Clamp to ±90° | Respect mechanical joint constraints |
 
-### Design Rationale
+## Motor Control Implementation
 
-- **Positive and negative range**: Eliminates discontinuities in control feedback
-- **Symmetric limits**: Simplifies motion planning and joint coordinate bounds
-- **Single calibration point**: Robust to encoder drift with minimal recalibration overhead
+The motor control subsystem implements proportional feedback control with configurable gain tuning and directional control for each joint actuator. PWM output drives H-bridge motor drivers for bidirectional rotation.
+
+### PWM Output and Direction Control
+
+The `Update_Motor_Drive()` function computes control efforts from position error and applies them to the motor driver through Timer 3:
+
+```c
+void Update_Motor_Drive(float target, float current) {
+    // Compute position error for feedback loop
+    float error = target - current;
+    
+    // Apply proportional gain scaling
+    float output = Kp * error;
+
+    // Determine motor rotation direction based on control output polarity
+    if (output * motor_direction_multiplier > 0) {
+        HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_SET);   
+    } else {
+        HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_RESET);
+    }
+
+    // Saturate output to valid 16-bit PWM range (0-65535)
+    float abs_output = fabs(output);
+    if (abs_output > 65535.0f) abs_output = 65535.0f;
+    
+    // Apply PWM duty cycle to Timer 3, Channel 1 (motor drive)
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, (uint32_t)abs_output);
+}
+```
+
+**Control Architecture**:
+- **Feedback Loop**: Computes position error between target and current joint angles in degrees
+- **Proportional Gain**: Scales error by tunable coefficient $K_p$ to generate control effort
+- **Direction Multiplier**: Software-based inversion flag enables motor polarity control without wiring changes
+- **PWM Saturation**: Constrains output to 16-bit timer register range (0–65535 counts)
+- **Bidirectional Motion**: Asymmetric PWM duty cycle enables precise forward and reverse actuation
+
+## Live-Tuning Command Interface
+
+The system provides real-time parameter adjustment through a UART-based command-line interface, enabling dynamic control tuning without recompilation or power cycling. This in-progress implementation supports interactive system calibration and gain modification during operation.
+
+### Command Processing and UART Reception
+
+The command interface accepts structured ASCII commands through interrupt-driven UART reception on USART2:
+
+```c
+void Parse_CLI_Command(char* cmd) {
+    // SET_P <gain> - Update proportional feedback coefficient
+    if (strncmp(cmd, "SET_P", 5) == 0) {
+        Kp = atof(&cmd[6]);
+    }
+    // SET_HOME <angle> - Adjust target joint angle set-point
+    else if (strncmp(cmd, "SET_HOME", 8) == 0) {
+        target_angle = atof(&cmd[11]); 
+    }
+    // INV_DIR - Toggle motor rotation direction
+    else if (strncmp(cmd, "INV_DIR", 7) == 0) {
+        motor_direction_multiplier *= -1;
+    }
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+    if (huart->Instance == USART2) {
+        // Detect command terminator (CR or LF)
+        if (rx_data == '\r' || rx_data == '\n') {
+            rx_buffer[rx_index] = '\0';
+            Parse_CLI_Command(rx_buffer);
+            rx_index = 0;
+        } else {
+            // Accumulate characters into command buffer
+            if (rx_index < UART_BUF_SIZE - 1) {
+                rx_buffer[rx_index++] = (char)rx_data;
+            }
+        }
+        // Re-enable interrupt for next character reception
+        HAL_UART_Receive_IT(&huart2, &rx_data, 1);
+    }
+}
+```
+
+**Supported Commands**:
+
+| Command | Format | Purpose |
+|---------|--------|---------|
+| `SET_P` | `SET_P <gain>` | Update proportional feedback gain coefficient |
+| `SET_HOME` | `SET_HOME <angle>` | Set target joint angle set-point |
+| `INV_DIR` | `INV_DIR` | Toggle motor direction polarity |
+
+### Design Rationale for Motor Control
+
+**Proportional Feedback Control**:
+- Proportional gain eliminates steady-state error in position tracking
+- Tunable $K_p$ coefficient enables system commissioning without firmware recompilation
+- Symmetric positive/negative output range maintains linear feedback characteristics
+
+**Directional Control Architecture**:
+- Software-based direction multiplier enables rapid motor polarity inversion during commissioning
+- Decouples mechanical motor wiring from control logic, improving modularity
+- Eliminates hardware rewiring delays during prototype iteration
+
+**Angle Resolution and Constraints**:
+- 12-bit encoder resolution (4096 counts) provides ±0.088° granularity per count
+- Symmetric ±90° mechanical limits simplify motion planning and prevent joint over-extension
+- Single calibration offset (3500 counts) minimizes encoder drift compensation overhead
+
 ## Getting Started
 
 ### Prerequisites
