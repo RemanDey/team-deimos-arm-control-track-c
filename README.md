@@ -262,3 +262,6 @@ The project is configured for **IAR Embedded Workbench (EWARM)**. Build and proj
 2. Configure project settings for STM32F407xx target
 3. Build the project
 4. Deploy to STM32F4 microcontroller via debugger or bootloader
+
+
+Made by Reman Dey
