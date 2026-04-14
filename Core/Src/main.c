@@ -22,7 +22,10 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <math.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -33,17 +36,17 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 /* Motor Control Variables */
-float Kp = 1.5f;          
-float target_angle = 0.0f;  
-float current_angle = 0.0f;  
-int motor_direction_multiplier = 1; 
+float Kp = 1.5f;
+float target_angle = 0.0f;
+float current_angle = 0.0f;
+int motor_direction_multiplier = 1;
 
 #define UART_BUF_SIZE 64
 uint8_t rx_data;
 char rx_buffer[UART_BUF_SIZE];
 uint8_t rx_index = 0;
 
-extern TIM_HandleTypeDef htim3; 
+extern TIM_HandleTypeDef htim1;
 extern UART_HandleTypeDef huart2;
 /* USER CODE END PD */
 
@@ -59,6 +62,10 @@ I2S_HandleTypeDef hi2s3;
 
 SPI_HandleTypeDef hspi1;
 
+TIM_HandleTypeDef htim1;
+
+UART_HandleTypeDef huart2;
+
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -69,6 +76,8 @@ static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_I2S3_Init(void);
 static void MX_SPI1_Init(void);
+static void MX_TIM1_Init(void);
+static void MX_USART2_UART_Init(void);
 void MX_USB_HOST_Process(void);
 
 /* USER CODE BEGIN PFP */
@@ -81,20 +90,20 @@ void MX_USB_HOST_Process(void);
   uint16_t Read_AS5600(uint8_t mux_channel){
     uint16_t angle = 0;
     uint8_t data[2];
-    uint8_t mux_address = 0x70; 
-    uint8_t mux_channel_select = 1 << mux_channel; 
+    uint8_t mux_address = 0x70;
+    uint8_t mux_channel_select = 1 << mux_channel;
     HAL_I2C_Master_Transmit(&hi2c1, mux_address << 1, &mux_channel_select, 1, HAL_MAX_DELAY);
-    uint8_t as5600_address = 0x36; 
-    uint8_t angle_register = 0x0E; 
+    uint8_t as5600_address = 0x36;
+    uint8_t angle_register = 0x0E;
     HAL_I2C_Master_Transmit(&hi2c1, as5600_address << 1, &angle_register, 1, HAL_MAX_DELAY);
     HAL_I2C_Master_Receive(&hi2c1, as5600_address << 1, data, 2, HAL_MAX_DELAY);
     angle = (data[0] << 8) | data[1];
     return angle;
-  
+
   }
   /*Part 2: My GetTrueJointAngle function*/
   float GetTrueJointAngle(uint16_t raw_encoder_val){
-    int32_t relative_val=int32_t(raw_encoder_val)-int32_t(3500);
+	int32_t relative_value = (int32_t)raw_encoder_val - (int32_t)3500;
     while (relative_value > 2048)  relative_value -= 4096;
     while (relative_value < -2048) relative_value += 4096;
     float joint_angle = (float)relative_value * (180.0f / 4096.0f);
@@ -104,36 +113,26 @@ void MX_USB_HOST_Process(void);
   }
 void Update_Motor_Drive(float target, float current) {
     float error = target - current;
-  
+
     float output = Kp * error;
 
     if (output * motor_direction_multiplier > 0) {
-        HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_SET);   
+        HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_SET);
     } else {
-        HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_RESET);
     }
 
     float abs_output = fabs(output);
-    
+
     if (abs_output > 65535.0f) abs_output = 65535.0f;
-    
-    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, (uint32_t)abs_output);
+
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, (uint32_t)abs_output);
 }
 
-
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-    if (htim->Instance == TIM2) { 
-      
-        uint16_t raw = Read_AS5600(0); 
-        current_angle = GetTrueJointAngle(raw);
-
-        Update_Motor_Drive(target_angle, current_angle);
-    }
-}
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-    if (htim->Instance == TIM2) {
+    if (htim->Instance == TIM1) {
         uint16_t CHANNEL_0 = 0;
-        uint16_t raw = Read_AS5600(CHANNEL_0); 
+        uint16_t raw = Read_AS5600(CHANNEL_0);
         current_angle = GetTrueJointAngle(raw);
         Update_Motor_Drive(target_angle, current_angle);
     }
@@ -144,18 +143,18 @@ void Parse_CLI_Command(char* cmd) {
         Kp = atof(&cmd[6]);
     }
 
-  
+
     else if (strncmp(cmd, "SET_HOME", 8) == 0) {
-        target_angle = atof(&cmd[11]); 
+        target_angle = atof(&cmd[11]);
     }
-   
+
     else if (strncmp(cmd, "INV_DIR", 7) == 0) {
         motor_direction_multiplier *= -1;
     }
 }
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
     if (huart->Instance == USART2) {
-        
+
         if (rx_data == '\r' || rx_data == '\n') {
             rx_buffer[rx_index] = '\0';
             Parse_CLI_Command(rx_buffer);
@@ -165,7 +164,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
                 rx_buffer[rx_index++] = (char)rx_data;
             }
         }
-    
+
         HAL_UART_Receive_IT(&huart2, &rx_data, 1);
     }
 }
@@ -205,8 +204,8 @@ int main(void)
   MX_SPI1_Init();
   MX_USB_HOST_Init();
   /* USER CODE BEGIN 2 */
-HAL_TIM_Base_Start_IT(&htim2);
-HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+HAL_TIM_Base_Start_IT(&htim1);
+HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
 HAL_UART_Receive_IT(&huart2, &rx_data, 1);
   /* USER CODE END 2 */
 
@@ -217,11 +216,28 @@ HAL_UART_Receive_IT(&huart2, &rx_data, 1);
     /* USER CODE END WHILE */
     MX_USB_HOST_Process();
 
+
     /* USER CODE BEGIN 3 */
+    uint16_t a = Read_AS5600(0);
+    float b=GetTrueJointAngle(a);
+    Update_Motor_Drive(60.0,b);
+    char a_val[50];
+    char b_val[50];
+    sprintf(a_val, "AS5600: %u\r\n", a);
+    sprintf(b_val, "Angle: %u\r\n", b);
+    HAL_UART_Transmit(&huart2, (uint8_t*)a_val, strlen(a_val), HAL_MAX_DELAY);
+    HAL_UART_Transmit(&huart2, (uint8_t*)b_val, strlen(b_val), HAL_MAX_DELAY);
+
+
+
   }
   /* USER CODE END 3 */
 }
 
+/**
+  * @brief System Clock Configuration
+  * @retval None
+  */
 /**
   * @brief System Clock Configuration
   * @retval None
@@ -243,8 +259,8 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = 4;
-  RCC_OscInitStruct.PLL.PLLN = 168;
+  RCC_OscInitStruct.PLL.PLLM = 8;
+  RCC_OscInitStruct.PLL.PLLN = 336;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = 7;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
@@ -286,11 +302,11 @@ static void MX_I2C1_Init(void)
   hi2c1.Init.ClockSpeed = 400000;
   hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
   hi2c1.Init.OwnAddress1 = 0;
-  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_10BIT;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
   hi2c1.Init.OwnAddress2 = 0;
   hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_ENABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
   if (HAL_I2C_Init(&hi2c1) != HAL_OK)
   {
     Error_Handler();
@@ -374,6 +390,114 @@ static void MX_SPI1_Init(void)
 }
 
 /**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 0;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 65535;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
+  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
+  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
+  sBreakDeadTimeConfig.DeadTime = 0;
+  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
+  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
+  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
+  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
+  HAL_TIM_MspPostInit(&htim1);
+
+}
+
+/**
+  * @brief USART2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART2_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 115200;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -394,7 +518,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(CS_I2C_SPI_GPIO_Port, CS_I2C_SPI_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOE, CS_I2C_SPI_Pin|GPIO_PIN_10, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(OTG_FS_PowerSwitchOn_GPIO_Port, OTG_FS_PowerSwitchOn_Pin, GPIO_PIN_SET);
@@ -403,12 +527,12 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOD, LD4_Pin|LD3_Pin|LD5_Pin|LD6_Pin
                           |Audio_RST_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : CS_I2C_SPI_Pin */
-  GPIO_InitStruct.Pin = CS_I2C_SPI_Pin;
+  /*Configure GPIO pins : CS_I2C_SPI_Pin PE10 */
+  GPIO_InitStruct.Pin = CS_I2C_SPI_Pin|GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(CS_I2C_SPI_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
   /*Configure GPIO pin : OTG_FS_PowerSwitchOn_Pin */
   GPIO_InitStruct.Pin = OTG_FS_PowerSwitchOn_Pin;

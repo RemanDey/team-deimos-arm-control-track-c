@@ -1,0 +1,15 @@
+../Core/Src/main.c:90:12:Read_AS5600	1
+../Core/Src/main.c:105:9:GetTrueJointAngle	5
+../Core/Src/main.c:114:6:Update_Motor_Drive	3
+../Core/Src/main.c:132:6:HAL_TIM_PeriodElapsedCallback	2
+../Core/Src/main.c:140:6:Parse_CLI_Command	4
+../Core/Src/main.c:155:6:HAL_UART_RxCpltCallback	5
+../Core/Src/main.c:177:5:main	1
+../Core/Src/main.c:245:6:SystemClock_Config	3
+../Core/Src/main.c:291:13:MX_I2C1_Init	2
+../Core/Src/main.c:325:13:MX_I2S3_Init	2
+../Core/Src/main.c:359:13:MX_SPI1_Init	2
+../Core/Src/main.c:397:13:MX_TIM1_Init	7
+../Core/Src/main.c:472:13:MX_USART2_UART_Init	2
+../Core/Src/main.c:505:13:MX_GPIO_Init	1
+../Core/Src/main.c:606:6:Error_Handler	1
